@@ -1,0 +1,21 @@
+{
+  "name": "shuster-park",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "שוסטר פארק — בונים רכבות הרים ומנהלים פארק שעשועים בדפדפן",
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "dev": "node tools/build.mjs && node tools/serve.mjs",
+    "qa": "node tools/qa.mjs",
+    "balance": "node tools/balance.mjs",
+    "test": "npm run qa && npm run balance",
+    "test:browser": "node tools/build.mjs && node tools/smoke.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.23.1",
+    "playwright": "1.56.1",
+    "three": "0.185.1"
+  },
+  "engines": { "node": ">=20" }
+}
