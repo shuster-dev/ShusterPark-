@@ -62,11 +62,10 @@ $('btn-continue').classList.toggle('hidden', !saved);
 $('btn-new').textContent = saved ? 'פארק חדש' : 'בואו נבנה פארק!';
 $('btn-new').classList.toggle('main', !saved);
 $('start').classList.remove('hidden');
-$('btn-continue').onclick = () => { $('start').classList.add('hidden'); paused.on = false; };
-$('btn-new').onclick = () => {
-  if (saved && !confirm('להתחיל פארק חדש? הפארק השמור יימחק.')) return;
-  game.newPark(); $('start').classList.add('hidden'); paused.on = false;
-};
+game.start = (fresh) => { if (fresh) game.newPark(); $('start').classList.add('hidden'); paused.on = false; };
+$('btn-continue').onclick = () => game.start(false);
+// asked on the page itself: some browsers and app views never show confirm()
+$('btn-new').onclick = () => (saved ? game.ui.confirm('להתחיל פארק חדש?', 'הפארק השמור יימחק', 'start-new') : game.start(true));
 if (new URLSearchParams(location.search).has('play')) { $('start').classList.add('hidden'); paused.on = false; }
 
 addEventListener('resize', () => game.world.resize());
