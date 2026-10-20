@@ -137,7 +137,7 @@ export class Train {
     this.F = newFrame();
     this.m = new THREE.Matrix4();
     this.v = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
-    this.preview = -1;
+    this.preview = null;
   }
   // Where the middle of the train is along the curve right now.
   trainS(o, now) {
@@ -146,7 +146,7 @@ export class Train {
     if (!run) return rest;
     let e = -1;
     if (o.phase === 'run') e = run.duration - o.timer;
-    else if (this.preview >= 0) { e = now - this.preview; if (e > run.duration) { this.preview = -1; e = -1; } }
+    else if (this.preview !== null) { e = now - this.preview; if (e > run.duration) { this.preview = null; e = -1; } }
     if (e < 0) return run.traj[0];
     const u = e / TRAJ_DT, i = Math.min(run.traj.length - 2, Math.floor(u)), f = Math.min(1, u - i);
     return run.traj[i] + (run.traj[i + 1] - run.traj[i]) * f;

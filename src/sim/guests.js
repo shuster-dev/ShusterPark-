@@ -82,8 +82,8 @@ function walkTo(g, x, z, dt) {
 }
 
 function needs(P, g, dt) {
-  g.hunger = clamp(g.hunger + 0.17 * dt);
-  g.thirst = clamp(g.thirst + 0.22 * dt);
+  g.hunger = clamp(g.hunger + 0.22 * dt);
+  g.thirst = clamp(g.thirst + 0.28 * dt);
   g.toilet = clamp(g.toilet + 0.05 * dt);
   g.energy = clamp(g.energy - 0.055 * dt);
   g.nausea = clamp(g.nausea - 0.35 * dt);
@@ -298,7 +298,7 @@ function impulse(P, g, ids) {
     if (!o || !o.open) continue;
     if (o.type === 'shop') {
       const k = SHOPS[o.kind].kind;
-      const want = (k === 'drink' && g.thirst > 40) || (k === 'food' && g.hunger > 45) || (k === 'toilet' && g.toilet > 45)
+      const want = (k === 'drink' && g.thirst > 32) || (k === 'food' && g.hunger > 38) || (k === 'toilet' && g.toilet > 40)
         || (o.kind === 'icecream' && g.hunger > 20 && P.rand() < 0.25) || (k === 'gift' && !g.item && P.rand() < 0.1);
       if (want && o.price <= SHOPS[o.kind].worth * g.gen && o.price <= g.money) { buy(P, g, o); return; }
     } else if (!o.broken && (o.type !== 'coaster' || o.tested) && !g.ridden[o.id] && o.int <= g.maxInt && g.nausea < 40
