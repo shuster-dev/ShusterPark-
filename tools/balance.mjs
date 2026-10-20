@@ -34,6 +34,8 @@ export function buildDemo(P, opts = {}) {
   // a few trees
   for (let k = 0; k < 10; k++) P.place('scenery', k % 2 ? 'oak' : 'pine', 26 + (k % 5), 23 + Math.floor(k / 5), 0);
   P.place('scenery', 'fountain', 26, 27, 0);
+  // the ticket booth by the gate
+  const spot = P.boothSpot(); must(P.place('booth', 'booth', spot.x, spot.z, spot.rot), 'booth');
   // staff
   must(P.hire('cleaner'), 'c1'); must(P.hire('mechanic'), 'm1');
   return P;

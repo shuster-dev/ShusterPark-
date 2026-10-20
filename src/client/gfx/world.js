@@ -5,11 +5,41 @@ import * as THREE from 'three';
 import { MAP, GATE, SCENERY, ADDON_BY_ID, ADDONS, RIDES, SHOPS, COASTER, STEP } from '../../sim/catalog.js';
 import { idx, tx, tz, inMap, NB } from '../../sim/grid.js';
 import { endState, nextState, DX, DZ } from '../../sim/track.js';
-import { MAT, GHOST, C, mesh, merge, box, rideModel, shopModel, sceneryGeometry, addonGeometry, gateModel, WATER_JET, sign } from './models.js';
+import { MAT, MATTE, GHOST, BULB_A, BULB_B, C, RAINBOW, mesh, merge, box, cylS, ballS, rideModel, shopModel, boothModel, sceneryGeometry, addonGeometry, gateModel, carGeometry, WATER_JET, sign } from './models.js';
 import { trackMesh, Train, endMarker, TRACK_Y } from './coaster.js';
 import { People } from './people.js';
 
 const PATH_Y = 0.06;
+
+// Grass with a little noise in it, and paving stones for the paths, drawn once.
+function grassTexture(base, rep) {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 256;
+  const x = cv.getContext('2d');
+  x.fillStyle = base; x.fillRect(0, 0, 256, 256);
+  let seed = 3;
+  const r = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let k = 0; k < 2600; k++) {
+    const l = r() < 0.5 ? 255 : 0;
+    x.fillStyle = `rgba(${l},${l},${l},${0.03 + r() * 0.05})`;
+    x.fillRect(r() * 256, r() * 256, 1 + r() * 3, 1 + r() * 5);
+  }
+  const t = new THREE.CanvasTexture(cv);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rep, rep); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return t;
+}
+function paverTexture() {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 128;
+  const x = cv.getContext('2d');
+  x.fillStyle = '#c9ad84'; x.fillRect(0, 0, 128, 128);
+  const tones = ['#ead3ad', '#e2c79c', '#f0dcba', '#dcc093'];
+  for (let row = 0; row < 4; row++) for (let col = -1; col < 3; col++) {
+    const off = row % 2 ? 21 : 0;
+    x.fillStyle = tones[(row * 3 + col + 4) % tones.length];
+    x.fillRect(col * 43 + off + 2, row * 32 + 2, 39, 28);
+  }
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return t;
+}
 
 export class World {
   constructor(canvas, quality = 'auto') {
@@ -62,6 +92,8 @@ export class World {
     this.sun.castShadow = shadows;
     this.sun.shadow.mapSize.set(level === 'high' ? 2048 : 1024, level === 'high' ? 2048 : 1024);
     if (this.sun.shadow.map) { this.sun.shadow.map.dispose(); this.sun.shadow.map = null; }
+    // hundreds of people casting shadows is the one thing a phone feels
+    if (this.people) for (const m of [...this.people.all, ...Object.values(this.people.seat)]) m.castShadow = level === 'high';
     this.scene.traverse((o) => { if (o.material) o.material.needsUpdate = true; });
     this.resize();
   }
@@ -76,37 +108,54 @@ export class World {
 
   // ------------------------------------------------------------ the land
   buildLand() {
-    const outer = new THREE.Mesh(new THREE.PlaneGeometry(MAP + 160, MAP + 160), new THREE.MeshLambertMaterial({ color: 0x6aa84f }));
+    const outer = new THREE.Mesh(new THREE.PlaneGeometry(MAP + 160, MAP + 160), new THREE.MeshLambertMaterial({ map: grassTexture('#6aa84f', 52) }));
     outer.rotation.x = -Math.PI / 2; outer.position.set(MAP / 2, -0.02, MAP / 2); outer.receiveShadow = true;
     this.scene.add(outer);
-    const inner = new THREE.Mesh(new THREE.PlaneGeometry(MAP, MAP), new THREE.MeshLambertMaterial({ color: 0x86c45e }));
+    const inner = new THREE.Mesh(new THREE.PlaneGeometry(MAP, MAP), new THREE.MeshLambertMaterial({ map: grassTexture('#86c45e', 12) }));
     inner.rotation.x = -Math.PI / 2; inner.position.set(MAP / 2, 0, MAP / 2); inner.receiveShadow = true;
     this.scene.add(inner);
-    // road and car park outside the gate
-    const road = [box(MAP + 160, 0.02, 3, 0x55595e, { x: MAP / 2, y: 0, z: MAP + 6.5 })];
+    // the road, a paved plaza in front of the gate, and car parks either side
+    const gx = GATE.x + 0.5;
+    const road = [box(MAP + 160, 0.02, 3, 0x4f5459, { x: MAP / 2, y: 0, z: MAP + 6.5 })];
     for (let x = -70; x < MAP + 70; x += 3) road.push(box(1.4, 0.022, 0.12, 0xf8f4ec, { x, y: 0.001, z: MAP + 6.5 }));
-    road.push(box(9, 0.02, 4, 0x8d8f91, { x: GATE.x + 0.5, y: 0.001, z: MAP + 2.6 }));
-    road.push(box(3, 0.025, 2.8, 0xe3c9a0, { x: GATE.x + 0.5, y: 0.002, z: MAP + 1.4 }));
-    const r = mesh(merge(road)); r.castShadow = false; this.scene.add(r);
-    // fence around the park, with a gap for the gate
-    const f = [];
-    const post = (x, z) => f.push(box(0.08, 0.5, 0.08, C.white, { x, y: 0.25, z }));
-    for (let k = 0; k <= MAP; k++) {
-      post(k, 0); post(0, k); post(MAP, k);
-      if (Math.abs(k - (GATE.x + 0.5)) > 2.2) post(k, MAP);
+    road.push(box(6, 0.024, 4.8, 0xe8d3ae, { x: gx, y: 0.001, z: MAP + 2.5 }));
+    for (let k = 0; k < 7; k++) road.push(box(0.12, 0.026, 4.8, 0xd65a5a, { x: gx - 2.7 + k * 0.9, y: 0.002, z: MAP + 2.5 }));
+    for (const side of [-1, 1]) {
+      const cx = gx + side * 9.5;
+      road.push(box(12, 0.02, 4.4, 0x5d6268, { x: cx, y: 0.001, z: MAP + 2.6 }));
+      for (let k = 0; k <= 12; k++) road.push(box(0.05, 0.023, 1.6, 0xf8f4ec, { x: cx - 6 + k, y: 0.002, z: MAP + 1.4 }), box(0.05, 0.023, 1.6, 0xf8f4ec, { x: cx - 6 + k, y: 0.002, z: MAP + 3.8 }));
     }
-    f.push(box(MAP, 0.05, 0.04, C.white, { x: MAP / 2, y: 0.4, z: 0 }), box(MAP, 0.05, 0.04, C.white, { x: MAP / 2, y: 0.22, z: 0 }));
-    for (const x of [0, MAP]) f.push(box(0.04, 0.05, MAP, C.white, { x, y: 0.4, z: MAP / 2 }), box(0.04, 0.05, MAP, C.white, { x, y: 0.22, z: MAP / 2 }));
-    const gl = GATE.x + 0.5 - 2.2, gr = GATE.x + 0.5 + 2.2;
-    for (const [a, b] of [[0, gl], [gr, MAP]]) f.push(box(b - a, 0.05, 0.04, C.white, { x: (a + b) / 2, y: 0.4, z: MAP }), box(b - a, 0.05, 0.04, C.white, { x: (a + b) / 2, y: 0.22, z: MAP }));
+    const r = mesh(merge(road), MATTE); r.castShadow = false; this.scene.add(r);
+    // parked cars, some gaps, in many colours
+    let seed = 11;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const cars = [], palette = [...RAINBOW, 0xffffff, 0x2b2f36, 0x9aa4ae];
+    for (const side of [-1, 1]) for (const row of [MAP + 1.4, MAP + 3.8]) for (let k = 0; k < 12; k++) {
+      if (rnd() < 0.3) continue;
+      const g = carGeometry(palette[Math.floor(rnd() * palette.length)]);
+      g.applyMatrix4(new THREE.Matrix4().compose(new THREE.Vector3(gx + side * 9.5 - 5.5 + k, 0, row), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2 + (rnd() - 0.5) * 0.1), new THREE.Vector3(1, 1, 1)));
+      cars.push(g);
+    }
+    this.scene.add(mesh(merge(cars)));
+    // a white picket fence with red posts every few tiles, a gap for the gate
+    const f = [];
+    const post = (x, z, big) => f.push(big ? cylS(0.06, 0.06, 0.62, C.red, { x, y: 0.31, z }, 8) : box(0.05, 0.42, 0.05, C.white, { x, y: 0.21, z }), ...(big ? [ballS(0.07, C.yellow, { x, y: 0.66, z }, 8, 6)] : []));
+    for (let k = 0; k <= MAP; k++) {
+      const big = k % 4 === 0;
+      post(k, 0, big); post(0, k, big); post(MAP, k, big);
+      if (Math.abs(k - gx) > 2.2) post(k, MAP, big);
+    }
+    f.push(box(MAP, 0.05, 0.035, C.white, { x: MAP / 2, y: 0.34, z: 0 }), box(MAP, 0.05, 0.035, C.white, { x: MAP / 2, y: 0.16, z: 0 }));
+    for (const x of [0, MAP]) f.push(box(0.035, 0.05, MAP, C.white, { x, y: 0.34, z: MAP / 2 }), box(0.035, 0.05, MAP, C.white, { x, y: 0.16, z: MAP / 2 }));
+    const gl = gx - 2.2, gr = gx + 2.2;
+    for (const [a, b] of [[0, gl], [gr, MAP]]) f.push(box(b - a, 0.05, 0.035, C.white, { x: (a + b) / 2, y: 0.34, z: MAP }), box(b - a, 0.05, 0.035, C.white, { x: (a + b) / 2, y: 0.16, z: MAP }));
     const fence = mesh(merge(f)); fence.castShadow = false; this.scene.add(fence);
     const gate = gateModel('שוסטר פארק');
     gate.position.set(GATE.x + 0.5, 0, MAP + 0.1);
     gate.traverse((o) => { if (o.isMesh) o.castShadow = true; });
     this.scene.add(gate);
     // a wood all around
-    let seed = 7;
-    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    seed = 7;
     const trees = { oak: [], pine: [] };
     for (let k = 0; k < 420; k++) {
       const a = rnd() * Math.PI * 2, d = MAP / 2 + 3 + rnd() * 38;
@@ -163,8 +212,9 @@ export class World {
     for (let i = 0; i < MAP * MAP; i++) if (P.path[i]) tiles.push(i);
     // path slabs
     const slab = new THREE.BoxGeometry(1, PATH_Y, 1); slab.translate(0, PATH_Y / 2, 0);
-    const paths = new THREE.InstancedMesh(slab, new THREE.MeshLambertMaterial({ color: 0xffffff }), Math.max(1, tiles.length));
-    const ca = new THREE.Color(0xe7cfa6), cb = new THREE.Color(0xdcc193), cc = new THREE.Color();
+    this.paver ||= paverTexture();
+    const paths = new THREE.InstancedMesh(slab, new THREE.MeshLambertMaterial({ color: 0xffffff, map: this.paver }), Math.max(1, tiles.length));
+    const ca = new THREE.Color(0xffffff), cb = new THREE.Color(0xf4ecdf), cc = new THREE.Color();
     tiles.forEach((i, k) => {
       m.makeTranslation(tx(i) + 0.5, 0, tz(i) + 0.5); paths.setMatrixAt(k, m);
       cc.copy((tx(i) + tz(i)) % 2 ? ca : cb); paths.setColorAt(k, cc);
@@ -278,7 +328,7 @@ export class World {
         continue;
       }
       if (!v) {
-        const model = o.type === 'ride' ? rideModel(o.kind) : shopModel(o.kind, SHOPS[o.kind].icon);
+        const model = o.type === 'ride' ? rideModel(o.kind) : o.type === 'booth' ? boothModel() : shopModel(o.kind);
         model.group.position.set(o.x + o.w / 2, 0, o.z + o.d / 2);
         model.group.rotation.y = -o.rot * Math.PI / 2;
         model.group.traverse((c) => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
@@ -292,6 +342,13 @@ export class World {
           const a = acc[0], dx = tx(a) - o.x, dz = tz(a) - o.z;
           v.group.rotation.y = Math.atan2(dx, dz);
         }
+      }
+      if (o.type === 'booth') {
+        // the windows face whichever long side the path runs along
+        const acc = P.access.get(o.id) || [];
+        let ax = 0, az = 0;
+        for (const a of acc) { ax += tx(a) + 0.5 - (o.x + o.w / 2); az += tz(a) + 0.5 - (o.z + o.d / 2); }
+        v.group.rotation.y = o.rot % 2 ? (ax >= 0 ? Math.PI / 2 : -Math.PI / 2) : (az >= 0 ? 0 : Math.PI);
       }
       // a broken ride shows a warning over it
       if (o.queue) {
@@ -324,10 +381,11 @@ export class World {
       this.ghost.clear(); this.ghostKey = key;
       let g;
       if (type === 'ride') g = rideModel(kind).group;
-      else if (type === 'shop') g = shopModel(kind, SHOPS[kind].icon).group;
+      else if (type === 'shop') g = shopModel(kind).group;
+      else if (type === 'booth') g = boothModel().group;
       else g = new THREE.Mesh(this.sceneryGeo(kind), GHOST);
       g.traverse((c) => { if (c.isMesh) { c.material = GHOST; c.castShadow = false; } });
-      g.rotation.y = -rot * Math.PI / 2;
+      g.rotation.y = type === 'booth' ? (rot % 2 ? Math.PI / 2 : 0) : -rot * Math.PI / 2;
       this.ghost.add(g);
     }
     this.ghost.position.set(x + w / 2, 0, z + d / 2);
@@ -400,8 +458,27 @@ export class World {
       else v.model.animate(o, now, dt);
       if (v.warn) v.warn.position.y += Math.sin(now * 4) * 0.002;
     }
-    for (const j of this.jets) { const s = 0.85 + Math.sin(now * 5 + j.position.x) * 0.15; j.scale.set(1, s, 1); j.position.y = 0.7 + s * 0.5; }
+    for (const j of this.jets) { const s = 0.85 + Math.sin(now * 5 + j.position.x) * 0.15; j.scale.set(1, s, 1); j.position.y = 0.85 + s * 0.4; }
     this.people.update(P, now);
+    // riders sit in the seats of whatever is running
+    const seated = [];
+    for (const [id, v] of this.views) {
+      const o = P.objects.get(id);
+      if (!o || !o.riders || o.phase !== 'run') continue;
+      const seats = v.train ? v.train.seats : v.model.seats;
+      if (!seats) continue;
+      const n = Math.min(seats.length, o.riders.length);
+      for (let k = 0; k < n; k++) {
+        const g = P.guestById(o.riders[k]);
+        if (!g) continue;
+        seats[k].updateWorldMatrix(true, false);
+        seated.push({ m: seats[k].matrixWorld, g });
+      }
+    }
+    this.people.seated(seated);
+    // the bulbs chase each other
+    const on = Math.floor(now * 2.4) % 2 === 0;
+    BULB_A.color.setHex(on ? 0xfff6c2 : 0xd9a63a); BULB_B.color.setHex(on ? 0xd9a63a : 0xfff6c2);
     // selection ring
     const s = this.selected;
     if (s && s.kind === 'person') {

@@ -3,7 +3,7 @@
 // second. The screen reads this and calls the build/price/hire methods.
 import {
   MAP, MONTH, DAYS, MONTHS, START_MONTH, GATE, MAX_GUESTS, START_CASH, START_LOAN, MAX_LOAN, LOAN_STEP, INTEREST,
-  PATH_COST, REFUND, UNDO_WINDOW, MARKETING, GOAL, RIDES, SHOPS, SCENERY, ADDONS, ADDON_BY_ID, STAFF, COASTER, PIECES,
+  PATH_COST, REFUND, UNDO_WINDOW, MARKETING, GOAL, RIDES, SHOPS, SCENERY, BOOTH, ADDONS, ADDON_BY_ID, STAFF, COASTER, PIECES,
   CLEAR_PATH, CLEAR_TRACK, NAMES, LETTERS,
 } from './catalog.js';
 import { nextState, stationPieces, endState, isComplete, checkPiece, autoComplete, testRun, buildCurve, DX, DZ } from './track.js';
@@ -174,10 +174,11 @@ export class Park {
   }
 
   // ---------- rides, stalls, scenery ----------
-  defOf(type, kind) { return type === 'ride' ? RIDES[kind] : type === 'shop' ? SHOPS[kind] : SCENERY[kind]; }
+  defOf(type, kind) { return type === 'ride' ? RIDES[kind] : type === 'shop' ? SHOPS[kind] : type === 'booth' ? BOOTH : SCENERY[kind]; }
   placeReason(type, kind, x, z, rot = 0) {
     const def = this.defOf(type, kind);
     if (!def) return 'לא קיים';
+    if (type === 'booth' && this.booth()) return 'יש כבר קופה';
     const { w, d } = footprint(def, rot);
     const tiles = this.tilesOf(x, z, w, d);
     if (!tiles) return 'מחוץ לפארק';
@@ -193,11 +194,35 @@ export class Park {
     const o = { id, type, kind, x, z, rot, w, d, built: this.t, spent: def.cost };
     if (type === 'ride') Object.assign(o, this.rideState(), { name: this.nameFor(def.he), price: def.price, exc: def.exc, int: def.int, nau: def.nau, open: true });
     if (type === 'shop') Object.assign(o, { name: this.nameFor(def.he), price: def.price, sales: 0, monthIncome: 0, totalIncome: 0, open: true });
+    if (type === 'booth') Object.assign(o, { name: 'קופה', sold: 0 });
     this.objects.set(id, o);
     for (const i of this.tilesOf(x, z, w, d)) this.owner[i] = id;
     this.spend(def.cost);
     this.changed();
     return { id };
+  }
+  // ---------- the ticket booth ----------
+  booth() { for (const o of this.objects.values()) if (o.type === 'booth') return o; return null; }
+  // open for business: a booth that guests can walk past
+  isOpen() {
+    if (this.legacyOpen) return true;
+    const b = this.booth();
+    return !!b && (this.access.get(b.id) || []).length > 0;
+  }
+  // a good spot for the booth: beside the path, as close to the gate as there is room
+  boothSpot() {
+    let best = null, bd = 1e9;
+    for (let z = GATE.z; z >= Math.max(0, GATE.z - 12); z--) for (let x = GATE.x - 6; x <= GATE.x + 6; x++) for (const rot of [1, 0]) {
+      const { w, d } = footprint(BOOTH, rot);
+      const tiles = this.tilesOf(x, z, w, d);
+      if (!tiles || !this.groundFree(tiles, BOOTH.h)) continue;
+      let touches = false;
+      for (const i of tiles) for (const [dx, dz] of NB) { const nx = tx(i) + dx, nz = tz(i) + dz; if (inMap(nx, nz) && this.path[idx(nx, nz)]) touches = true; }
+      if (!touches) continue;
+      const dist = Math.abs(x + w / 2 - GATE.x - 0.5) * 1.3 + Math.abs(z + d / 2 - GATE.z) + (x + w / 2 > GATE.x + 0.5 ? 0 : 0.3);
+      if (dist < bd) { bd = dist; best = { x, z, rot }; }
+    }
+    return best;
   }
   rideState() {
     return { queue: [], riders: [], phase: 'idle', timer: 0, rel: 0.98, broken: false, lastInspect: this.t, age: 0, runs: 0, monthIncome: 0, totalIncome: 0, totalRiders: 0 };
@@ -506,6 +531,7 @@ export class Park {
     return v;
   }
   arrivalRate() {
+    if (!this.isOpen()) return 0;
     const open = this.rides().filter((o) => o.open && (o.type !== 'coaster' || o.tested)).length;
     const cap = this.capacity(), n = this.guests.length;
     if (n >= cap) return 0;
@@ -534,7 +560,7 @@ export class Park {
     // running costs, paid as time passes
     let upkeep = 0;
     for (const o of this.objects.values()) {
-      if (o.type === 'ride' || o.type === 'shop') upkeep += this.defOf(o.type, o.kind).upkeep;
+      if (o.type === 'ride' || o.type === 'shop' || o.type === 'booth') upkeep += this.defOf(o.type, o.kind).upkeep;
       if (o.type === 'coaster') upkeep += COASTER.upkeepBase + o.pieces.length * COASTER.upkeepPerPiece;
     }
     this.spend((upkeep * dt) / MONTH, 'upkeep');
@@ -567,6 +593,7 @@ export class Park {
           g.state = 'ride';
           o.riders.push(g.id);
         }
+        this.layoutQueue(o);
         if (!o.riders.length) { o.phase = 'idle'; break; }
         o.phase = 'run'; o.timer = o.type === 'coaster' ? o.run.duration : def.cycle;
         o.runs++; o.totalRiders += o.riders.length;
@@ -587,6 +614,25 @@ export class Park {
     if ((o.broken || !o.open) && o.queue.length && this.rand() < dt * 0.5) {
       const g = this.guestById(o.queue.shift());
       if (g) { g.state = 'walk'; g.goal = null; g.nxt = -1; g.happy = Math.max(0, g.happy - 3); this.thought(g, 'broken', o.id); }
+      this.layoutQueue(o);
+    }
+  }
+
+  // Line the queue up neatly on the path tiles by the entrance, facing the ride.
+  layoutQueue(o) {
+    const own = o.type === 'coaster' ? new Set(this.stationTiles(o)) : new Set(this.tilesOf(o.x, o.z, o.w, o.d) || []);
+    const perTile = new Map();
+    for (const gid of o.queue) {
+      const g = this.guestById(gid);
+      if (!g) continue;
+      const k = perTile.get(g.cur) || 0;
+      perTile.set(g.cur, k + 1);
+      let dx = 0, dz = -1;
+      for (const [ax, az] of NB) if (own.has(idx(tx(g.cur) + ax, tz(g.cur) + az))) { dx = ax; dz = az; break; }
+      const row = Math.floor(k / 4), col = k % 4, cx = tx(g.cur) + 0.5, cz = tz(g.cur) + 0.5;
+      const back = 0.34 - Math.min(row, 3) * 0.22 - (row > 3 ? 0.05 : 0), side = (col - 1.5) * 0.19 + (row > 3 ? (row % 2) * 0.09 : 0);
+      g.x = cx + dx * back - dz * side; g.z = cz + dz * back + dx * side;
+      g.dir = Math.atan2(dx, dz);
     }
   }
 
@@ -677,7 +723,7 @@ export class Park {
     });
     const enc = (a) => btoa(String.fromCharCode(...a));
     return {
-      v: 1, seed: this.seed, t: this.t, name: this.name, cash: this.cash, loan: this.loan, entryFee: this.entryFee,
+      v: 2, legacyOpen: !!this.legacyOpen, seed: this.seed, t: this.t, name: this.name, cash: this.cash, loan: this.loan, entryFee: this.entryFee,
       marketingUntil: this.marketingUntil, rating: this.rating, nextId: this.nextId, ledger: this.ledger, history: this.history,
       totals: this.totals, won: this.won, goalMissed: this.goalMissed, spawnAcc: this.spawnAcc,
       path: enc(this.path), addon: enc(this.addon), dirt: enc(this.dirt), vomit: enc(this.vomit),
@@ -706,7 +752,19 @@ export class Park {
       if (o.type === 'coaster') p.retrack(o);
       else for (const i of p.tilesOf(o.x, o.z, o.w, o.d) || []) p.owner[i] = o.id;
     }
+    p.legacyOpen = !!j.legacyOpen;
     p.derive();
+    // a park saved before there were booths gets one, on the house
+    if ((j.v || 1) < 2 && !p.booth()) {
+      const spot = p.boothSpot();
+      if (spot) {
+        const { w, d } = footprint(BOOTH, spot.rot), id = p.nextId++;
+        p.objects.set(id, { id, type: 'booth', kind: 'booth', x: spot.x, z: spot.z, rot: spot.rot, w, d, built: -999, spent: 0, name: 'קופה', sold: 0 });
+        for (const i of p.tilesOf(spot.x, spot.z, w, d)) p.owner[i] = id;
+        p.derive();
+      } else p.legacyOpen = true;
+    }
+    for (const o of p.objects.values()) if (o.queue && o.queue.length) p.layoutQueue(o);
     return p;
   }
 }

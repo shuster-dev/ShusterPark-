@@ -12,13 +12,13 @@ const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem(SETTINGS)) || {}; } catch { return {}; } })();
 
 const game = {
-  park: null, world: null, ui: null, speed: 1, now: 0, lastSave: 0,
+  park: null, world: null, ui: null, speed: 1, now: 0, lastSave: 0, settings,
   setSpeed(s) { this.speed = s; this.ui.hud(); },
   save() {
     try { localStorage.setItem(SAVE, JSON.stringify(this.park.toJSON())); this.lastSave = this.now; }
     catch (e) { console.warn('save failed', e); }
   },
-  saveSettings() { try { localStorage.setItem(SETTINGS, JSON.stringify({ quality: this.world.quality })); } catch {} },
+  saveSettings() { try { localStorage.setItem(SETTINGS, JSON.stringify({ quality: this.world.quality, tutorial: settings.tutorial })); } catch {} },
   newPark() {
     this.park = new Park();
     this.world.target.set(24.5, 0, 39); this.world.yaw = 0; this.world.dist = 26; this.world.pitch = 0.92;
@@ -48,6 +48,7 @@ game.input = new Input(canvas, game.world, {
   paintCancel: () => game.ui.paintCancel(),
   tap: (x, y, t) => game.ui.tap(x, y, t),
   hover: (x, y) => game.ui.hover(x, y),
+  moved: () => { game.ui.camGoal = null; }, // the player took the camera
   rotate: () => game.ui.rotate(),
   escape: () => game.ui.escape(),
   togglePause: () => game.setSpeed(game.speed ? 0 : (game.prevSpeed || 1)),

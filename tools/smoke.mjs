@@ -29,6 +29,7 @@ function buildPark() {
   const g = window.__game, P = g.park, gx = 24;
   const must = (r, w) => { if (r && (typeof r === 'string' || r.error)) throw new Error(w + ': ' + (r.error || r)); };
   P.cash += 30000;
+  if (!P.booth()) { const s = P.boothSpot(); must(P.place('booth', 'booth', s.x, s.z, s.rot), 'booth'); }
   const pp = (x, z) => { const r = P.placePath(x, z); if (r && r !== 'כבר יש שביל') throw new Error(`path ${x},${z}: ${r}`); };
   for (let z = 40; z >= 26; z--) pp(gx, z);
   for (let x = 16; x <= 34; x++) pp(x, 34);
@@ -81,11 +82,28 @@ async function run(label, viewport, mobile) {
   await wait(1200);
   await snap('2-empty');
   ok('a new park: the gate path is there', await page.evaluate(() => window.__game.park.path.reduce((a, b) => a + b, 0) === 7));
-  ok('the hint says to start with a path', (await page.textContent('#hint')).includes('שביל'));
+  await page.waitForSelector('#tut [data-act="tut-go"]', { state: 'visible' });
+  ok('the tutorial starts with the ticket booth', (await page.textContent('#tut')).includes('קופה'));
+  ok('closed until there is a booth: nobody comes in', await page.evaluate(() => !window.__game.park.isOpen()));
+  await page.click('#tut [data-act="tut-go"]');
+  await wait(500);
+  await snap('3a-booth-ghost');
+  await page.click('#act [data-act="build"]');
+  await wait(600);
+  ok('the booth goes up by the gate and its price list opens', (await page.evaluate(() => !!window.__game.park.booth() && window.__game.park.isOpen())) && (await page.textContent('#sh-title')).includes('קופה'));
+  await snap('3b-booth-panel');
+  await page.click('#sh-body [data-act="fee"][data-arg="1"]');
+  ok('the entry price is set at the booth', await page.evaluate(() => window.__game.park.entryFee === 1));
+  await page.click('#sh-body [data-act="fee"][data-arg="-1"]');
+  await page.click('#sh-body [data-act="close"]');
+  await page.waitForFunction(() => document.getElementById('tut').textContent.includes('שבילים'));
+  ok('step two of the tutorial: paths', (await page.textContent('#tut')).includes('שביל'));
   // the path tool by touch/mouse: drag north from the gate path
   await page.click('[data-tool="path"]');
+  await wait(300);
   const box = await page.evaluate(() => {
-    const W = window.__game.world, v = new (W.camera.position.constructor)(24.5, 0, 40.5).project(W.camera), r = W.canvas.getBoundingClientRect();
+    const W = window.__game.world; window.__game.ui.camGoal = null; W.target.set(24.5, 0, 37); W.dist = 22; W.yaw = 0; W.pitch = 0.92; W.updateCamera();
+    const v = new (W.camera.position.constructor)(24.5, 0, 40.5).project(W.camera), r = W.canvas.getBoundingClientRect();
     const v2 = new (W.camera.position.constructor)(24.5, 0, 37.5).project(W.camera);
     return { x: r.left + (v.x + 1) / 2 * r.width, y: r.top + (1 - v.y) / 2 * r.height, x2: r.left + (v2.x + 1) / 2 * r.width, y2: r.top + (1 - v2.y) / 2 * r.height };
   });
@@ -104,6 +122,8 @@ async function run(label, viewport, mobile) {
   const paths = await page.evaluate(() => window.__game.park.path.reduce((a, b) => a + b, 0));
   ok('dragging the path tool lays path', paths > 7, paths);
   await snap('3-path');
+  await page.waitForFunction(() => document.getElementById('tut').textContent.includes('מתקן ראשון'), null, { timeout: 15000 }).catch(() => {});
+  ok('step three of the tutorial: a first ride', (await page.textContent('#tut')).includes('מתקן ראשון'));
   await page.click('[data-tool="path"]');
   await page.click('#act [data-act="tool-off"]').catch(() => {});
   // the ride picker
@@ -115,6 +135,10 @@ async function run(label, viewport, mobile) {
   // a whole park
   const built = await page.evaluate(buildPark);
   ok('built a park and ran it', built.guests > 20 && built.rides === 7, built);
+  await page.waitForFunction(() => window.__game.settings.tutorial === 'done', null, { timeout: 20000 }).catch(() => {});
+  ok('the tutorial is done once there is a ride', await page.evaluate(() => window.__game.settings.tutorial === 'done' && document.getElementById('tut').classList.contains('hidden')));
+  await page.waitForFunction(() => window.__game.world.people.seat.torso.count > 0, null, { timeout: 20000 }).catch(() => {});
+  ok('riders show on the rides', await page.evaluate(() => window.__game.world.people.seat.torso.count > 0));
   await page.evaluate((d) => { const W = window.__game.world; W.target.set(28, 0, 31); W.dist = d; W.yaw = 0.5; }, mobile ? 34 : 28);
   await wait(1500);
   await snap('5-park');
@@ -151,7 +175,7 @@ async function run(label, viewport, mobile) {
   await wait(300); await snap('13-coaster-picker');
   await page.evaluate(() => { window.__game.park.cash += 20000; });
   await page.click('#sh-body [data-act="new-coaster"]');
-  await page.evaluate(() => { const W = window.__game.world; W.target.set(10, 0, 20); W.dist = 22; });
+  await page.evaluate(() => { const W = window.__game.world; window.__game.ui.camGoal = null; W.target.set(10, 0, 20); W.dist = 22; });
   await wait(200);
   const sp = await page.evaluate(() => {
     const W = window.__game.world; W.updateCamera();

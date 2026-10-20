@@ -40,6 +40,7 @@ export class Input {
   }
 
   grab(x0, y0, x1, y1) {
+    this.h.moved?.();
     const p0 = this.w.groundAt(x0, y0), p1 = this.w.groundAt(x1, y1);
     if (!p0 || !p1) return;
     this.w.target.x += p0.x - p1.x; this.w.target.z += p0.z - p1.z;

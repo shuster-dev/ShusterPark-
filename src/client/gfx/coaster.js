@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { upAt, DX, DZ, F_CHAIN, F_LOOP, F_STATION, TRAJ_DT } from '../../sim/track.js';
 import { COASTER } from '../../sim/catalog.js';
-import { MAT, mesh, box, merge, part, ball, C } from './models.js';
+import { MAT, mesh, box, merge, part, ball, capsule, cylS, ballS, torus, rod, bulbs, C } from './models.js';
 
 export const TRACK_Y = 0.22; // track sits on short legs even at ground level
 const RAIL = 0.14;
@@ -106,31 +106,34 @@ export function trackMesh(o, isPath) {
   return group;
 }
 
-// The train: cars that follow the curve, with heads for riders.
+// The train: cars that follow the curve, with a seat for each rider.
 export class Train {
   constructor(o) {
     this.group = new THREE.Group();
     this.cars = [];
-    this.heads = [];
+    this.seats = [];
+    const col = o.color, trim = 0x1d3557;
     const body = merge([
-      box(0.34, 0.1, 0.5, o.color, { y: 0.08 }),
-      box(0.3, 0.14, 0.04, 0x1d3557, { y: 0.18, z: -0.06 }),
-      box(0.3, 0.14, 0.04, 0x1d3557, { y: 0.18, z: 0.18 }),
-      box(0.04, 0.08, 0.5, o.color, { x: 0.17, y: 0.16 }), box(0.04, 0.08, 0.5, o.color, { x: -0.17, y: 0.16 }),
-      box(0.36, 0.03, 0.06, 0x333333, { y: 0.02, z: 0.2 }), box(0.36, 0.03, 0.06, 0x333333, { y: 0.02, z: -0.2 }),
+      capsule(0.13, 0.26, col, { y: 0.1, rx: Math.PI / 2, sx: 1.35, sy: 0.75, sz: 1 }, 12),
+      box(0.32, 0.03, 0.42, 0x2b2f36, { y: 0.17 }),
+      box(0.3, 0.16, 0.05, trim, { y: 0.24, z: -0.13, rx: -0.15 }),
+      capsule(0.022, 0.26, 0xd0d6dc, { y: 0.27, z: 0.09, rz: Math.PI / 2 }, 6),
+      box(0.36, 0.03, 0.06, 0x333333, { y: 0.0, z: 0.17 }), box(0.36, 0.03, 0.06, 0x333333, { y: 0.0, z: -0.17 }),
+      box(0.37, 0.025, 0.46, C.yellow, { y: 0.135 }),
     ]);
-    const nose = merge([part(new THREE.ConeGeometry(0.18, 0.28, 4), o.color, { y: 0.1, z: 0.36, rx: Math.PI / 2, ry: Math.PI / 4, sy: 1 }), box(0.3, 0.06, 0.04, 0xffd166, { y: 0.16, z: 0.28 })]);
-    const head = ball(0.055, 0xf1c27d, {}, 1);
-    const headMat = MAT;
+    const nose = merge([
+      part(new THREE.SphereGeometry(0.17, 14, 10, 0, Math.PI * 2, 0, Math.PI / 2), col, { y: 0.1, z: 0.3, rx: Math.PI / 2, sx: 1.05, sy: 1.3, sz: 0.75, smooth: true }),
+      ballS(0.03, 0xfff2b0, { x: 0.09, y: 0.12, z: 0.42 }, 8, 6), ballS(0.03, 0xfff2b0, { x: -0.09, y: 0.12, z: 0.42 }, 8, 6),
+    ]);
     for (let k = 0; k < COASTER.cars; k++) {
       const car = new THREE.Group();
       car.matrixAutoUpdate = false;
       car.add(mesh(body));
       if (k === 0) car.add(mesh(nose));
-      for (const z of [0.05, -0.17]) for (const x of [-0.08, 0.08]) {
-        const h = new THREE.Mesh(head, headMat);
-        h.position.set(x, 0.26, z);
-        car.add(h); this.heads.push(h);
+      for (const x of [0.075, -0.075]) {
+        const st = new THREE.Object3D();
+        st.position.set(x, 0.16, -0.03);
+        car.add(st); this.seats.push(st);
       }
       this.group.add(car); this.cars.push(car);
     }
@@ -155,7 +158,7 @@ export class Train {
     const c = o.curve;
     if (!c || !c.n) return;
     const s0 = this.trainS(o, now), half = ((COASTER.cars - 1) * COASTER.carLen) / 2;
-    const riders = o.phase === 'run' ? o.riders.length : o.phase === 'load' ? Math.min(o.queue.length, 12) : 0;
+    const riders = o.phase === 'run' ? o.riders.length : 0;
     this.cars.forEach((car, k) => {
       let s = s0 + half - k * COASTER.carLen;
       let u = s / c.ds;
@@ -169,7 +172,7 @@ export class Train {
       car.matrix.copy(this.m);
       car.matrixWorldNeedsUpdate = true;
     });
-    this.heads.forEach((h, k) => { h.visible = k < riders; });
+    this.riders = riders;
   }
 }
 

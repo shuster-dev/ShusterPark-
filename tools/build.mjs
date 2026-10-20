@@ -9,7 +9,7 @@ fs.rmSync(out, { recursive: true, force: true });
 fs.mkdirSync(out, { recursive: true });
 await esbuild.build({
   entryPoints: ['src/client/main.js'],
-  bundle: true, format: 'esm', minify: true, sourcemap: false, target: ['es2020', 'safari15'],
+  bundle: true, format: 'esm', minify: !process.env.DEBUG, sourcemap: false, target: ['es2020', 'safari15'],
   outfile: `${out}/main.js`, logLevel: 'warning', legalComments: 'none',
 });
 // a new build is a new address for the script, so no phone keeps an old one

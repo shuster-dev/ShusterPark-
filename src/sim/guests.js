@@ -39,6 +39,7 @@ export function stepGuest(P, g, dt) {
           if (P.entryFee > g.money * 0.6 || P.entryFee > worth) { g.state = 'out'; P.totals.turnedAway++; P.turnedRecent = (P.turnedRecent || 0) + 1; return; }
           g.money -= P.entryFee; g.spent += P.entryFee; P.earn(P.entryFee, 'entry');
         }
+        const b = P.booth(); if (b) b.sold = (b.sold || 0) + 1;
         g.state = 'walk'; g.cur = GATE_I; g.nxt = -1; g.p = 0;
       }
       return;
@@ -55,7 +56,7 @@ export function stepGuest(P, g, dt) {
       g.qt += dt;
       if (g.qt > 75 + g.gen * 40) {
         const o = P.objects.get(g.at);
-        if (o) { const k = o.queue.indexOf(g.id); if (k >= 0) o.queue.splice(k, 1); }
+        if (o) { const k = o.queue.indexOf(g.id); if (k >= 0) o.queue.splice(k, 1); P.layoutQueue(o); }
         g.state = 'walk'; g.nxt = -1; g.goal = null;
         g.happy = clamp(g.happy - 7);
         P.thought(g, 'queue-long', g.at);
@@ -267,9 +268,7 @@ function joinQueue(P, g, o) {
   if (o.queue.length >= QMAX(o)) { P.thought(g, 'queue-long', o.id); return; }
   o.queue.push(g.id);
   g.state = 'queue'; g.qt = 0; g.at = o.id; g.nxt = -1;
-  const k = o.queue.length;
-  g.x = tx(g.cur) + 0.5 + (((k * 0.37) % 0.8) - 0.4);
-  g.z = tz(g.cur) + 0.5 + (((k * 0.61) % 0.8) - 0.4);
+  P.layoutQueue(o);
   if (o.price < P.rideValue(o) * 0.45 && o.price > 0) { g.happy = clamp(g.happy + 3); P.thought(g, 'bargain', o.id); }
 }
 
@@ -295,7 +294,7 @@ function buy(P, g, o) {
 function impulse(P, g, ids) {
   for (const id of ids) {
     const o = P.objects.get(id);
-    if (!o || !o.open) continue;
+    if (!o || !o.open || o.type === 'booth') continue;
     if (o.type === 'shop') {
       const k = SHOPS[o.kind].kind;
       const want = (k === 'drink' && g.thirst > 32) || (k === 'food' && g.hunger > 38) || (k === 'toilet' && g.toilet > 40)
