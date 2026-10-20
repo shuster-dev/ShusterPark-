@@ -1,0 +1,21 @@
+# One-click deploy: https://render.com/deploy?repo=<this repo's URL>
+#
+# The whole game runs in the browser and saves there, so it's a static site:
+# no server to sleep, nothing to pay. Render builds it and serves dist/.
+services:
+  - type: web
+    name: shuster-park
+    runtime: static
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist
+    envVars:
+      - key: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD
+        value: "1"
+    headers:
+      # the page always fresh; the script's name changes with every build
+      - path: /
+        name: Cache-Control
+        value: no-cache
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache
