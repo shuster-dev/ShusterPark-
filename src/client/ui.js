@@ -630,6 +630,7 @@ export class UI {
       case 'save': this.g.save(); this.toast('הפארק נשמר', 'good'); break;
       case 'new-park': this.confirm('להתחיל פארק חדש?', 'הפארק הנוכחי יימחק', 'new-yes'); break;
       case 'new-yes': this.modal(null); this.closePanel(); this.setTool(null); this.g.newPark(); break;
+      case 'start-new': this.modal(null); this.g.start(true); break;
       case 'quality': this.W.setQuality(arg); this.g.saveSettings(); this.renderPanel(); break;
       case 'modal-ok': this.modal(null); break;
     }
