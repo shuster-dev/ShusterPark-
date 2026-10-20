@@ -16,6 +16,8 @@ const coasterFrom = (list, x = 10, z = 34, d = 0) => {
   return p;
 };
 const run = (P, secs) => { const end = P.t + secs; while (P.t < end) P.tick(0.1); };
+// every park needs its ticket booth before anyone comes in
+const openPark = (P) => { const s = P.boothSpot(); const r = P.place('booth', 'booth', s.x, s.z, s.rot); if (r.error) throw new Error('booth: ' + r.error); P.derive(); return r.id; };
 
 console.log('\ncatalog');
 ok('six rides, each with a Hebrew name, a price and a footprint', RIDE_ORDER.length === 6 && RIDE_ORDER.every((k) => RIDES[k].he && RIDES[k].cost > 0 && RIDES[k].w && RIDES[k].d));
@@ -115,12 +117,31 @@ console.log('\ncoaster in the park');
   ok('another coaster can\'t cross its low track', P.startCoaster(o.pieces[2].x, o.pieces[2].z, 1).error);
 }
 
+console.log('\nthe ticket booth');
+{
+  const P = new Park(8);
+  for (let z = GATE.z - 7; z >= 30; z--) P.placePath(GATE.x, z);
+  P.place('ride', 'carousel', GATE.x + 1, 34, 0);
+  run(P, 60);
+  ok('no booth: the park is closed and nobody comes', !P.isOpen() && P.guests.length === 0);
+  const spot = P.boothSpot();
+  ok('there is a spot for the booth by the gate path', !!spot && Math.abs(spot.z - GATE.z) <= 3, spot);
+  const b = openPark(P);
+  ok('only one booth', P.placeReason('booth', 'booth', 5, 5, 0) === 'יש כבר קופה');
+  run(P, 90);
+  ok('with a booth by the path the park opens and guests come in', P.isOpen() && P.guests.length > 0);
+  ok('the booth counts the tickets it sold', P.objects.get(b).sold > 0);
+  P.demolish(b);
+  ok('pull the booth down and the park closes', !P.isOpen() && P.arrivalRate() === 0);
+}
+
 console.log('\nguests');
 {
   const P = new Park(4);
   for (let z = GATE.z - 7; z >= 30; z--) P.placePath(GATE.x, z);
   const car = P.place('ride', 'carousel', GATE.x + 1, 34, 0).id;
   const burger = P.place('shop', 'burger', GATE.x - 1, 38, 0).id;
+  openPark(P);
   run(P, MONTH * 2);
   ok('guests come when there is something to do', P.guests.length > 10, P.guests.length);
   ok('they ride and pay for it', P.objects.get(car).totalRiders > 0 && P.ledger.in.rides + (P.history[0]?.in.rides || 0) > 0);
@@ -186,6 +207,7 @@ console.log('\nsaving');
   for (let z = GATE.z - 7; z >= 30; z--) P.placePath(GATE.x, z);
   P.place('ride', 'ship', GATE.x + 1, 33, 0);
   P.place('shop', 'drinks', GATE.x - 1, 36, 0);
+  openPark(P);
   P.placeAddon('bin', GATE.x, 37);
   P.cash += 20000;
   const r = P.startCoaster(8, 30, 0);
@@ -197,6 +219,10 @@ console.log('\nsaving');
   const Q = Park.fromJSON(j);
   ok('everything comes back: money, guests, rides, staff, paths', Q.cash === P.cash && Q.guests.length === P.guests.length && Q.objects.size === P.objects.size && Q.staff.length === P.staff.length && Q.path.every((v, i) => v === P.path[i]));
   ok('the coaster comes back tested and ready to run', Q.objects.get(r.id).tested && Q.objects.get(r.id).run && Q.objects.get(r.id).curve.closed);
+  ok('the booth comes back and the park stays open', !!Q.booth() && Q.isOpen());
+  const old = JSON.parse(JSON.stringify(j)); old.v = 1; old.objects = old.objects.filter((o) => o.type !== 'booth');
+  const R = Park.fromJSON(old);
+  ok('a park saved before booths existed gets one for free and stays open', !!R.booth() && R.booth().spent === 0 && R.isOpen());
   run(P, 60); run(Q, 60);
   ok('and the two parks play on exactly the same', Math.abs(Q.cash - P.cash) < 1e-6 && Q.guests.length === P.guests.length, { a: P.cash, b: Q.cash });
   ok('a save is small enough for the browser', JSON.stringify(j).length < 600000, JSON.stringify(j).length);

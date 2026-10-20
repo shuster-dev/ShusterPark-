@@ -28,11 +28,14 @@ export const RIDES = {
   carousel: { he: 'קרוסלה', icon: '🎠', w: 3, d: 3, h: 7, cost: 1400, upkeep: 35, exc: 2.4, int: 1.1, nau: 0.7, cap: 20, cycle: 18, price: 3, desc: 'סוסים מסתובבים. מתאים לכל אחד' },
   ferris: { he: 'גלגל ענק', icon: '🎡', w: 4, d: 2, h: 14, cost: 2200, upkeep: 45, exc: 3.1, int: 0.9, nau: 0.4, cap: 24, cycle: 26, price: 4, desc: 'נוף מלמעלה, בלי פחד' },
   teacups: { he: 'ספלים מסתובבים', icon: '☕', w: 3, d: 3, h: 4, cost: 1700, upkeep: 40, exc: 3.3, int: 3.0, nau: 4.4, cap: 16, cycle: 16, price: 4, desc: 'מסתובב מהר. לא אחרי ארוחה' },
-  bumper: { he: 'מכוניות מתנגשות', icon: '🚗', w: 4, d: 3, h: 5, cost: 2400, upkeep: 50, exc: 4.0, int: 2.4, nau: 0.9, cap: 14, cycle: 22, price: 5, desc: 'כולם אוהבים להתנגש' },
+  bumper: { he: 'מכוניות מתנגשות', icon: '🚗', w: 4, d: 3, h: 5, cost: 2400, upkeep: 50, exc: 4.0, int: 2.4, nau: 0.9, cap: 10, cycle: 18, price: 5, desc: 'כולם אוהבים להתנגש' },
   ship: { he: 'ספינת פיראטים', icon: '⛵', w: 4, d: 3, h: 9, cost: 2900, upkeep: 60, exc: 4.7, int: 5.2, nau: 4.6, cap: 28, cycle: 20, price: 6, desc: 'נדנדה ענקית. הבטן מתהפכת' },
   tower: { he: 'מגדל נפילה', icon: '🗼', w: 2, d: 2, h: 30, cost: 3400, upkeep: 70, exc: 5.4, int: 7.3, nau: 2.4, cap: 12, cycle: 20, price: 7, desc: 'עולים לאט, נופלים מהר' },
 };
 export const RIDE_ORDER = ['carousel', 'ferris', 'teacups', 'bumper', 'ship', 'tower'];
+
+// The ticket booth: one per park. Until it stands by a path, nobody comes in.
+export const BOOTH = { he: 'קופה', icon: '🎟️', w: 2, d: 1, h: 5, cost: 300, upkeep: 20, desc: 'כאן קונים כרטיסים וקובעים מחירים. בלי קופה הפארק סגור' };
 
 // Stalls: one tile each. item effects are on the guest's needs (0..100).
 export const SHOPS = {

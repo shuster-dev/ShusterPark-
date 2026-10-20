@@ -3,7 +3,7 @@
 // stalls, guests, staff, money and the park itself. Hebrew, right to left.
 import {
   RIDES, RIDE_ORDER, SHOPS, SHOP_ORDER, SCENERY, SCENERY_ORDER, ADDONS, STAFF, STAFF_ORDER, PIECES, PIECE_ORDER,
-  PATH_COST, GOAL, MARKETING, MAX_LOAN, COASTER, STEP, ADDON_BY_ID, MONTH, GATE,
+  PATH_COST, GOAL, MARKETING, MAX_LOAN, COASTER, STEP, ADDON_BY_ID, MONTH, GATE, BOOTH,
 } from '../sim/catalog.js';
 import { footprint, idx } from '../sim/park.js';
 import { thoughtText, GOOD_THOUGHTS } from '../sim/guests.js';
@@ -16,19 +16,23 @@ const n = (x) => `<span class="num">${x}</span>`; // a number inside Hebrew text
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const BAD_THOUGHTS = new Set(['expensive', 'scary', 'queue-long', 'broken', 'no-food', 'no-drink', 'no-toilet', 'no-bench', 'sick', 'dirty', 'nothing', 'lost', 'poor', 'leave-unhappy', 'too-intense', 'entry-expensive', 'tired']);
 
+// each tool has its own candy colour
 const TOOLS = [
-  { k: 'path', ic: '🛤️', he: 'שביל' },
-  { k: 'coaster', ic: '🎢', he: 'רכבת הרים' },
-  { k: 'rides', ic: '🎠', he: 'מתקנים' },
-  { k: 'shops', ic: '🍔', he: 'דוכנים' },
-  { k: 'scenery', ic: '🌳', he: 'נוי' },
-  { k: 'addons', ic: '🪑', he: 'לשביל' },
-  { k: 'staff', ic: '👷', he: 'צוות' },
-  { k: 'finance', ic: '💰', he: 'כספים' },
-  { k: 'park', ic: '🏞️', he: 'הפארק' },
-  { k: 'demolish', ic: '🚜', he: 'הריסה' },
-  { k: 'menu', ic: '☰', he: 'תפריט' },
+  { k: 'booth', ic: '🎟️', he: 'קופה', c: ['#ffe08a', '#ff8a3d'] },
+  { k: 'path', ic: '🛤️', he: 'שביל', c: ['#f6dcb0', '#c9975a'] },
+  { k: 'coaster', ic: '🎢', he: 'רכבת הרים', c: ['#ff8a96', '#ef3b4a'] },
+  { k: 'rides', ic: '🎠', he: 'מתקנים', c: ['#ffa3c4', '#ff4f8b'] },
+  { k: 'shops', ic: '🍔', he: 'דוכנים', c: ['#ffbf8a', '#ff8a3d'] },
+  { k: 'scenery', ic: '🌳', he: 'נוי', c: ['#86e8ad', '#22b05e'] },
+  { k: 'addons', ic: '🪑', he: 'לשביל', c: ['#93ecd9', '#19c3a3'] },
+  { k: 'staff', ic: '👷', he: 'צוות', c: ['#9cc9ff', '#2b8cff'] },
+  { k: 'finance', ic: '💰', he: 'כספים', c: ['#b0f3c4', '#22b05e'] },
+  { k: 'park', ic: '🏞️', he: 'הפארק', c: ['#cdb3ff', '#8f5fd8'] },
+  { k: 'demolish', ic: '🚜', he: 'הריסה', c: ['#ffe08a', '#e0a100'] },
+  { k: 'menu', ic: '☰', he: 'תפריט', c: ['#c9c4e4', '#6a6585'] },
 ];
+const CAT_COLORS = { rides: ['#ffd1e1', '#ff8fb4'], shops: ['#ffe2c7', '#ffb37a'], scenery: ['#cdf5dc', '#7ddca2'], addons: ['#d1f7ef', '#7fe0cc'], coaster: ['#ffd0d4', '#ff8a96'], staff: ['#d6e8ff', '#8fc0ff'] };
+const cvars = (c) => (c ? `style="--c1:${c[0]};--c2:${c[1]}"` : '');
 
 const rateWord = (v, kind) => {
   if (kind === 'int') return v < 2 ? 'רגוע' : v < 4.5 ? 'נעים' : v < 7 ? 'חזק' : v < 9 ? 'חזק מאוד' : 'קיצוני';
@@ -49,6 +53,7 @@ export class UI {
     $('act').addEventListener('click', (e) => this.act(e));
     $('coaster').addEventListener('click', (e) => this.act(e));
     $('modal').addEventListener('click', (e) => this.act(e));
+    $('tut').addEventListener('click', (e) => this.act(e));
     $('hint').addEventListener('click', () => this.hintTap && this.hintTap());
     for (const b of document.querySelectorAll('#speed button')) b.onclick = () => this.g.setSpeed(+b.dataset.s);
     this.slow = 0; this.panelT = 0; this.hintT = 0;
@@ -68,7 +73,7 @@ export class UI {
   }
 
   toolbar() {
-    $('tools').innerHTML = TOOLS.map((t) => `<button class="tool" data-tool="${t.k}"><span class="ic">${t.ic}</span>${t.he}</button>`).join('');
+    $('tools').innerHTML = TOOLS.map((t) => `<button class="tool" data-tool="${t.k}" ${cvars(t.c)}><span class="ic">${t.ic}</span>${t.he}</button>`).join('');
     $('tools').onclick = (e) => {
       const b = e.target.closest('[data-tool]');
       if (!b) return;
@@ -82,12 +87,27 @@ export class UI {
     this.setTool(null);
     this.openCat = k;
     if (k === 'path') { this.setTool({ k: 'path' }); this.markTool('path'); return; }
+    if (k === 'booth') {
+      if (this.P.booth()) { this.markTool('booth'); this.openPanel({ k: 'booth' }); return; }
+      this.startBooth(); return;
+    }
     if (k === 'demolish') { this.setTool({ k: 'demolish' }); this.markTool('demolish'); return; }
     this.markTool(k);
     this.openPanel({ k: k === 'rides' || k === 'shops' || k === 'scenery' || k === 'addons' || k === 'coaster' ? 'pick' : k, cat: k });
   }
 
   // ------------------------------------------------------------ tools
+  // the booth tool starts with the booth already where it fits best, one tap to confirm
+  startBooth() {
+    const spot = this.P.boothSpot();
+    this.setTool({ k: 'place', type: 'booth', kind: 'booth', rot: spot ? spot.rot : 0 });
+    this.markTool('booth');
+    if (spot) {
+      const f = footprint(BOOTH, spot.rot);
+      this.placeAt({ x: spot.x + Math.floor((f.w - 1) / 2), z: spot.z + Math.floor((f.d - 1) / 2) });
+      this.camGoal = { x: spot.x + 1, z: spot.z + 3, h: 0 };
+    }
+  }
   setTool(t) {
     this.tool = t;
     this.paint = null;
@@ -120,7 +140,8 @@ export class UI {
       lbl = `${d.icon} ${d.he} · ${fmt(d.cost)}`;
       btns += `<button class="btn" data-act="rotate">↻ סובב</button>`;
       if (t.at) btns += `<button class="btn go" data-act="build" ${t.ok ? '' : 'disabled'}>✓ בנה</button>`;
-      else lbl += `<br><span style="font-weight:500;color:#5d6b82">${t.k === 'station' ? 'הקש איפה לשים את התחנה' : 'הקש ליד שביל'}</span>`;
+      else lbl += `<br><span style="font-weight:500;color:#6a6585">${t.k === 'station' ? 'הקש איפה לשים את התחנה' : 'הקש ליד שביל'}</span>`;
+      if (t.type === 'booth' && t.at && t.ok) lbl += `<br><span style="font-weight:500;color:#6a6585">ליד הכניסה. אפשר להקיש במקום אחר</span>`;
     }
     el.innerHTML = `<div class="lbl">${lbl}</div>${btns}<button class="btn x2" data-act="tool-off">✕</button>`;
     el.classList.remove('hidden');
@@ -165,6 +186,13 @@ export class UI {
     const r = this.P.place(t.type, t.kind, t.at.x, t.at.z, t.rot);
     if (r.error) return this.toast(r.error, 'bad');
     const o = this.P.objects.get(r.id);
+    if (t.type === 'booth') {
+      this.setTool(null);
+      this.P.derive();
+      if (!this.P.isOpen()) this.toast('הקופה לא נוגעת בשביל. בלי זה הפארק לא נפתח', 'warn');
+      this.openPanel({ k: 'booth', first: true });
+      return;
+    }
     if (t.type !== 'scenery' && !(this.P.access.get(r.id) || []).length && !this.P.needDerive) this.toast(`${o.name} לא נוגע בשביל. אורחים לא יגיעו אליו`, 'warn');
     else if (t.type !== 'scenery') this.toast(`${o.name} נבנה`, 'good');
     t.at = null; this.W.clearGhost(); this.actBar();
@@ -261,7 +289,7 @@ export class UI {
     const o = cid ? P.objects.get(cid) : tile ? P.objAt(tile.x, tile.z) : null;
     if (o) {
       if (o.type === 'scenery') { P.demolish(o.id); return; }
-      return this.confirm(`להרוס את ${esc(o.name)}?`, `יחזרו ${fmt(P.demolishValue(o.id))}`, 'demolish-yes', o.id);
+      return this.confirm(`להרוס את ${esc(o.name)}?`, `יחזרו ${fmt(P.demolishValue(o.id))}${o.type === 'booth' ? '. בלי קופה הפארק נסגר לאורחים חדשים' : ''}`, 'demolish-yes', o.id);
     }
     if (!tile) return;
     const i = idx(tile.x, tile.z);
@@ -281,6 +309,7 @@ export class UI {
     const cid = this.W.pickCoaster(cx, cy);
     if (cid) return this.openPanel({ k: 'obj', id: cid });
     const o = tile && P.objAt(tile.x, tile.z);
+    if (o && o.type === 'booth') return this.openPanel({ k: 'booth' });
     if (o && o.type !== 'scenery') return this.openPanel({ k: 'obj', id: o.id });
     this.closePanel();
   }
@@ -294,6 +323,7 @@ export class UI {
   // ------------------------------------------------------------ panels
   openPanel(p) {
     this.panel = p;
+    $('tut').classList.add('hidden');
     $('sheet').classList.remove('hidden');
     $('sheet').classList.toggle('wide', p.k !== 'pick');
     this.W.select(p.k === 'guest' || p.k === 'worker' ? { kind: 'person', id: p.id } : p.k === 'obj' ? { kind: 'object', id: p.id } : null);
@@ -302,6 +332,7 @@ export class UI {
   closePanel(keepTool) {
     this.panel = null; this.openCat = null;
     $('sheet').classList.add('hidden');
+    this.hintT = 1; // the tutorial comes straight back
     this.W.select(null);
     if (!keepTool && !this.tool) this.markTool(null);
   }
@@ -336,6 +367,7 @@ export class UI {
       case 'park': [title, html] = this.parkPanel(); break;
       case 'menu': [title, html] = this.menuPanel(); break;
       case 'test': [title, html] = this.testPanel(p.id); break;
+      case 'booth': [title, html] = this.boothPanel(p.first); break;
       default: return;
     }
     $('sh-title').textContent = title;
@@ -344,8 +376,8 @@ export class UI {
   }
 
   pickPanel(cat) {
-    const P = this.P, card = (act, arg, ic, nm, pr, ds, st, ok = true, on = false) =>
-      `<button class="card ${ok ? '' : 'off'} ${on ? 'on' : ''}" data-act="${act}" data-arg="${arg}"><span class="ic">${ic}</span><span class="nm">${nm}</span>${pr ? `<span class="pr num">${pr}</span>` : ''}${ds ? `<span class="ds">${ds}</span>` : ''}${st ? `<span class="st">${st}</span>` : ''}</button>`;
+    const P = this.P, col = cvars(CAT_COLORS[cat]), card = (act, arg, ic, nm, pr, ds, st, ok = true, on = false) =>
+      `<button class="card ${ok ? '' : 'off'} ${on ? 'on' : ''}" data-act="${act}" data-arg="${arg}" ${col}><span class="ic">${ic}</span><span class="nm">${nm}</span>${pr ? `<span class="pr num">${pr}</span>` : ''}${ds ? `<span class="ds">${ds}</span>` : ''}${st ? `<span class="st">${st}</span>` : ''}</button>`;
     let html = '<div class="cards">', title = '';
     if (cat === 'rides') {
       title = 'מתקנים';
@@ -457,8 +489,8 @@ export class UI {
     const P = this.P;
     let h = '<div class="cards">';
     for (const k of STAFF_ORDER) {
-      const d = STAFF[k], n = P.staff.filter((s) => s.role === k).length;
-      h += `<button class="card" data-act="hire" data-arg="${k}"><span class="ic">${d.icon}</span><span class="nm">שכור ${d.he}</span><span class="pr">${n(fmt(d.wage))} לחודש</span><span class="ds">${d.desc}</span><span class="st">עובדים עכשיו: ${n}</span></button>`;
+      const d = STAFF[k], cnt = P.staff.filter((s) => s.role === k).length;
+      h += `<button class="card" data-act="hire" data-arg="${k}" ${cvars(CAT_COLORS.staff)}><span class="ic">${d.icon}</span><span class="nm">שכור ${d.he}</span><span class="pr">${n(fmt(d.wage))} לחודש</span><span class="ds">${d.desc}</span><span class="st">עובדים עכשיו: ${cnt}</span></button>`;
     }
     h += '</div>';
     h += `<div class="sec">הצוות (${P.staff.length}) · ${fmt(P.wages())} לחודש</div>`;
@@ -518,6 +550,30 @@ export class UI {
       • הדירוג עולה כשהאורחים שמחים, הפארק נקי ויש מה לעשות. דירוג גבוה מביא עוד אורחים.<br>
       • הפארק נשמר לבד בדפדפן הזה.</div>`;
     return ['תפריט', h];
+  }
+
+  // The booth: the entry ticket and every price in the park, in one list.
+  boothPanel(first) {
+    const P = this.P, b = P.booth();
+    if (!b) return ['קופה', `<div class="note">עוד אין קופה. בלי קופה אף אחד לא נכנס.</div><div class="btns"><button class="btn fun" data-act="booth-build">🎟️ בנו קופה</button></div>`];
+    let h = '';
+    if (first) h += `<div class="note" style="margin-bottom:8px">🎉 הקופה פתוחה! כאן קובעים את כל המחירים. אפשר לחזור לכאן בכל רגע מכפתור <b>🎟️ קופה</b>.</div>`;
+    if (!P.isOpen()) h += `<div class="pill bad" style="margin-bottom:8px">הקופה לא נוגעת בשביל, הפארק סגור</div>`;
+    h += `<div class="ticket-hero"><span class="tk">🎟️</span><span class="k">כרטיס כניסה<small>הפארק שווה בערך ${fmt(P.entryWorth())} · נמכרו ${(b.sold || 0).toLocaleString('he-IL')}</small></span>
+      <div class="stepper"><button data-act="fee" data-arg="-1">−</button><span class="val num">₪${P.entryFee}</span><button data-act="fee" data-arg="1">+</button></div></div>`;
+    h += `<div class="note">${P.entryFee ? 'עם כניסה בתשלום, האורחים מוכנים לשלם פחות על כל מתקן.' : 'כניסה חינם: האורחים משלמים רק על מתקנים ואוכל.'}</div>`;
+    const row = (o, ic, worth) => {
+      const hot = o.price > worth;
+      return `<div class="price-row"><span class="pi">${ic}</span><span class="pn">${esc(o.name)}<small class="${hot ? 'hot' : ''}">${hot ? 'יקר מדי לרוב האורחים · ' : ''}שווה בערך ${fmt(worth)}</small></span>
+        <div class="stepper"><button data-act="price-of" data-arg="${o.id}" data-d="-0.5">−</button><span class="val num">₪${o.price % 1 ? o.price.toFixed(2) : o.price}</span><button data-act="price-of" data-arg="${o.id}" data-d="0.5">+</button></div></div>`;
+    };
+    const rides = P.rides().filter((o) => o.type === 'ride' || o.tested);
+    h += `<div class="sec">מתקנים</div>`;
+    h += rides.length ? rides.map((o) => row(o, o.type === 'coaster' ? '🎢' : RIDES[o.kind].icon, P.rideValue(o))).join('') : '<div class="note">עוד אין מתקנים.</div>';
+    const shops = P.shops().filter((o) => SHOPS[o.kind].kind !== 'toilet');
+    if (shops.length) h += `<div class="sec">דוכנים</div>` + shops.map((o) => row(o, SHOPS[o.kind].icon, P.shopValue(o))).join('');
+    h += `<div class="btns"><button class="btn fun" data-act="auto-price">💡 מחירים מומלצים לכל הפארק</button>${first ? '<button class="btn main" data-act="close">המשך</button>' : ''}</div>`;
+    return ['🎟️ קופה', h];
   }
 
   testPanel(id) {
@@ -627,6 +683,16 @@ export class UI {
       case 'repay': T(P.repayLoan()); this.renderPanel(); break;
       case 'marketing': T(P.startMarketing()); this.renderPanel(); break;
       case 'fee': P.setEntryFee(P.entryFee + +arg); this.renderPanel(); break;
+      case 'price-of': { const o = P.objects.get(+arg); if (o) P.setPrice(o.id, o.price + +b.dataset.d); this.renderPanel(); break; }
+      case 'auto-price': {
+        // a little under what guests think each thing is worth: they pay, and feel they got a deal
+        for (const o of P.rides()) if (o.type === 'ride' || o.tested) P.setPrice(o.id, Math.max(1, Math.floor(P.rideValue(o) * 0.85 * 2) / 2));
+        for (const o of P.shops()) if (SHOPS[o.kind].kind !== 'toilet') P.setPrice(o.id, Math.max(1, Math.floor(P.shopValue(o) * 0.8 * 2) / 2));
+        this.toast('המחירים עודכנו', 'good'); this.renderPanel(); break;
+      }
+      case 'booth-build': this.closePanel(true); this.startBooth(); break;
+      case 'tut-go': this.tutGo(); break;
+      case 'tut-skip': this.g.settings.tutorial = 'done'; this.g.saveSettings(); this.tutorial(); break;
       case 'save': this.g.save(); this.toast('הפארק נשמר', 'good'); break;
       case 'new-park': this.confirm('להתחיל פארק חדש?', 'הפארק הנוכחי יימחק', 'new-yes'); break;
       case 'new-yes': this.modal(null); this.closePanel(); this.setTool(null); this.g.newPark(); break;
@@ -666,31 +732,89 @@ export class UI {
     }
   }
 
-  // The next thing worth doing, for someone new.
-  coach() {
-    const P = this.P, objs = [...P.objects.values()];
-    const has = (f) => objs.some(f);
+  // Three short steps for a new park: the booth, a path, a first ride. Then
+  // it gets out of the way and only the goal stays on screen.
+  tutSteps() {
+    const P = this.P;
     let paths = 0; for (let i = 0; i < P.path.length; i++) paths += P.path[i];
-    const rides = objs.filter((o) => o.type === 'ride' || (o.type === 'coaster' && o.tested && o.open));
-    let tip = null, tap = null;
-    if (!rides.length && paths <= 8) { tip = '👋 ברוכים הבאים! התחילו ב<b>🛤️ שביל</b>: גוררים מהכניסה פנימה.'; tap = () => this.toolButton('path'); }
-    else if (!rides.length) { tip = 'עכשיו מתקן ראשון: <b>🎠 מתקנים</b>, ומציבים אותו צמוד לשביל.'; tap = () => this.toolButton('rides'); }
-    else if (!has((o) => o.type === 'shop' && SHOPS[o.kind].kind === 'food')) { tip = 'האורחים יהיו רעבים: <b>🍔 דוכנים</b> ליד השביל.'; tap = () => this.toolButton('shops'); }
-    else if (!has((o) => o.type === 'shop' && o.kind === 'drinks')) { tip = 'וגם צמאים: דוכן <b>🥤 שתייה</b>.'; tap = () => this.toolButton('shops'); }
-    else if (!has((o) => o.type === 'shop' && o.kind === 'toilets') && P.guests.length > 10) { tip = 'אורחים מחפשים <b>🚻 שירותים</b>.'; tap = () => this.toolButton('shops'); }
-    else if (!P.staff.some((s) => s.role === 'cleaner') && P.guests.length > 15) { tip = 'השבילים מתלכלכים. שכרו <b>🧹 מנקה</b> ב<b>👷 צוות</b>.'; tap = () => this.toolButton('staff'); }
-    else if (!P.staff.some((s) => s.role === 'mechanic') && rides.length >= 2) { tip = 'מתקנים מתקלקלים. שכרו <b>🔧 מכונאי</b>.'; tap = () => this.toolButton('staff'); }
-    else if (!has((o) => o.type === 'coaster')) { tip = 'הגיע הזמן ל<b>🎢 רכבת הרים</b> משלכם!'; tap = () => this.toolButton('coaster'); }
-    else if (!P.won) {
-      const gd = P.goalDate();
-      tip = `🎯 יעד: <b>${GOAL.guests}</b> אורחים ודירוג <b>${GOAL.rating}</b> עד ${gd.monthName} שנה ${gd.year} · עכשיו ${P.guests.length} / ${Math.round(P.rating)}`;
-      tap = () => this.toolButton('park');
+    const rides = P.rides().filter((o) => o.type === 'ride' || o.tested).length;
+    return [
+      { done: !!P.booth(), ic: '🎟️', h: 'קודם כל קופה', p: 'מציבים קופה ליד הכניסה. בה קובעים את מחירי הכרטיסים.', btn: 'לבנות קופה', tool: 'booth' },
+      { done: paths > 8, ic: '🛤️', h: 'סוללים שבילים', p: 'גוררים שביל מהכניסה פנימה. האורחים הולכים רק על שבילים.', btn: 'לסלול שביל', tool: 'path' },
+      { done: rides > 0, ic: '🎠', h: 'מתקן ראשון', p: 'בוחרים מתקן ומציבים אותו צמוד לשביל. מכאן הכל לפי הבחירה שלכם.', btn: 'לבחור מתקן', tool: 'rides' },
+    ];
+  }
+  tutGo() {
+    const st = this.tutSteps().find((x) => !x.done);
+    if (st) this.toolButton(st.tool);
+  }
+  tutorial() {
+    const S = this.g.settings, el = $('tut');
+    for (const b of document.querySelectorAll('.tool.pulse')) b.classList.remove('pulse');
+    if (S.tutorial !== 'done') {
+      const steps = this.tutSteps(), k = steps.findIndex((x) => !x.done);
+      if (k < 0) {
+        S.tutorial = 'done'; this.g.saveSettings();
+        if (this.tutSeen) this.toast('הפארק פתוח! מכאן הכל בידיים שלכם 🎉', 'good');
+      } else {
+        this.tutSeen = true;
+        const st = steps[k];
+        const busy = (this.tool && this.tool.k === 'coaster') || !$('sheet').classList.contains('hidden') || !$('modal').classList.contains('hidden') || !$('start').classList.contains('hidden');
+        const toolOn = this.tool && ((st.tool === 'path' && this.tool.k === 'path') || (st.tool === 'booth' && this.tool.type === 'booth') || (st.tool === 'rides' && this.tool.type === 'ride'));
+        const small = !!this.tool; // something is being built: keep the card short
+        if (!toolOn) document.querySelector(`.tool[data-tool="${st.tool}"]`)?.classList.add('pulse');
+        const key = k + ':' + (toolOn ? 1 : 0) + (small ? 's' : '');
+        if (busy && !toolOn) { el.classList.add('hidden'); } else {
+          if (this.tutKey !== key || el.classList.contains('hidden')) {
+            this.tutKey = key;
+            el.innerHTML = `<div class="awn"></div><div class="in"><span class="big">${st.ic}</span><div class="tx"><div class="st">שלב ${k + 1} מתוך 3</div><h3>${st.h}</h3>${small ? '' : `<p>${st.p}</p>`}</div></div>
+              <div class="row2">${toolOn ? '' : `<button class="btn fun" data-act="tut-go" style="flex:0 0 auto">${st.btn}</button>`}<button class="skip" data-act="tut-skip">דלג</button>
+              <span class="dots">${[0, 1, 2].map((i) => `<i class="${i === k ? 'on' : ''}"></i>`).join('')}</span></div>`;
+          }
+          el.classList.remove('hidden');
+        }
+        $('hint').classList.add('hidden');
+        return;
+      }
     }
-    const el = $('hint');
-    if (!tip || (this.tool && this.tool.k === 'coaster')) { el.classList.add('hidden'); return; }
-    if (el.innerHTML !== tip) el.innerHTML = tip;
+    el.classList.add('hidden');
+    this.goalChip();
+  }
+  goalChip() {
+    const P = this.P, el = $('hint');
+    if ((this.tool && this.tool.k === 'coaster') || !$('start').classList.contains('hidden')) { el.classList.add('hidden'); return; }
+    const gd = P.goalDate(), g = Math.min(100, (P.guests.length / GOAL.guests) * 100), r = Math.min(100, (P.rating / GOAL.rating) * 100);
+    const html = P.won
+      ? `<span class="gl">🏆</span><span>ניצחת! הפארק הגיע ליעד</span>`
+      : `<span class="gl">🎯</span><span><b class="num">${P.guests.length}/${GOAL.guests}</b> אורחים <span class="bar"><i style="width:${g}%"></i></span> · דירוג <b class="num">${Math.round(P.rating)}/${GOAL.rating}</b> <span class="bar"><i style="width:${r}%"></i></span><br><span style="opacity:.7">עד ${gd.monthName}, שנה ${gd.year}</span></span>`;
+    if (el.innerHTML !== html) el.innerHTML = html;
     el.classList.remove('hidden');
-    this.hintTap = tap;
+    this.hintTap = () => this.toolButton('park');
+  }
+
+  // Now and then, one short tip about the park's biggest problem.
+  advise() {
+    const P = this.P;
+    if (this.g.settings.tutorial !== 'done' || P.guests.length < 15) return;
+    this.adviceT = (this.adviceT || 0) + 0.5;
+    if (this.adviceT < 40) return;
+    this.adviceT = 0;
+    this.lastAdvice ||= {};
+    const fresh = (k) => !this.lastAdvice[k] || this.g.now - this.lastAdvice[k] > 300;
+    const say = (k, text, go) => { this.lastAdvice[k] = this.g.now; this.toast(text, 'warn', go); return true; };
+    if (P.rides().some((o) => o.broken) && !P.staff.some((s) => s.role === 'mechanic') && fresh('mech')) return say('mech', 'יש מתקן מקולקל ואין מכונאי. שכרו מכונאי 🔧', () => this.toolButton('staff'));
+    const tips = {
+      'no-food': ['האורחים רעבים ואין מספיק אוכל 🍔', 'shops'], 'no-drink': ['האורחים צמאים, חסר דוכן שתייה 🥤', 'shops'],
+      'no-toilet': ['אורחים מחפשים שירותים 🚻', 'shops'], 'dirty': ['השבילים מלוכלכים. עוד מנקה יעזור 🧹', 'staff'],
+      'no-bench': ['אורחים עייפים מחפשים ספסל 🪑', 'addons'], 'nothing': ['האורחים משתעממים. הגיע הזמן למתקן חדש 🎠', 'rides'],
+      'entry-expensive': ['אורחים מסתובבים בשער: הכניסה יקרה מדי 🎟️', 'booth'],
+    };
+    for (const t of P.thoughtSummary || []) {
+      if (t.n < 6) break;
+      if (tips[t.k] && fresh(t.k)) return say(t.k, tips[t.k][0], () => this.toolButton(tips[t.k][1]));
+      if (t.k === 'expensive' && fresh('exp' + t.id)) { const o = P.objects.get(t.id); if (o) return say('exp' + t.id, `${o.name} יקר מדי בעיני האורחים. אפשר להוזיל בקופה 🎟️`, () => this.toolButton('booth')); }
+      if (t.k === 'queue-long' && fresh('q' + t.id)) { const o = P.objects.get(t.id); if (o) return say('q' + t.id, `התור ל${o.name} ארוך מדי. אולי עוד מתקן?`, () => this.toolButton('rides')); }
+    }
   }
 
   // ------------------------------------------------------------ every frame
@@ -699,7 +823,11 @@ export class UI {
     this.slow += dt; this.panelT += dt; this.hintT += dt;
     if (this.slow > 0.25) { this.slow = 0; this.hud(); }
     if (this.panelT > 0.6 && this.panel && this.panel.k !== 'pick' && this.panel.k !== 'test' && this.panel.k !== 'menu') { this.panelT = 0; this.renderPanel(); }
-    if (this.hintT > 1) { this.hintT = 0; this.coach(); }
+    if (this.hintT > 0.5) { this.hintT = 0; this.tutorial(); this.advise(); }
+    // toasts sit just under whatever card is showing at the top
+    const below = [$('tut'), $('hint')].find((e) => !e.classList.contains('hidden'));
+    const y = below ? below.getBoundingClientRect().bottom + 8 : null;
+    $('toasts').style.top = y ? `${Math.round(y)}px` : '';
     // ease the camera toward where the builder is working
     if (this.camGoal) {
       const W = this.W, k = Math.min(1, dt * 3);
